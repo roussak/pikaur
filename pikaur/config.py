@@ -83,6 +83,10 @@ CONFIG_SCHEMA: Dict[str, Any] = {
         },
     },
     'build': {
+        'MakepkgFlags': {
+            'type': 'str',
+            'default': '-c',
+        },
         'KeepBuildDir': {
             'type': 'bool',
             'default': 'no',
@@ -201,6 +205,10 @@ CONFIG_SCHEMA: Dict[str, Any] = {
         'PacmanPath': {
             'type': 'str',
             'default': 'pacman'
+        },
+        'MakepkgPath': {
+            'type': 'str',
+            'default': 'makepkg'
         },
         'PrivilegeEscalationTool': {
             'type': 'str',

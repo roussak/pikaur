@@ -99,6 +99,10 @@ When doing sysupgrade ignore AUR packages which have `outofdate` mark.
 
 #### [build]
 
+##### MakepkgFlags (default: -c)
+Flags which will be passed to the makepkg. Should be separated by commas (`,`).
+Will be overridden by `--mflags` option.
+
 ##### KeepBuildDir (default: no)
 Don't remove `~/.cache/pikaur/build/${PACKAGE_NAME}` directory between the builds.
 Will be overridden by `-k/--keepbuild` flag.
@@ -169,6 +173,9 @@ Reverse search results of the commands like `pikaur -Ss <query>` or `pikaur <que
 
 ##### PacmanPath (default: pacman)
 Path to pacman executable.
+
+##### MakepkgPath (default: makepkg)
+Path to makepkg executable.
 
 ##### SudoLoopInterval (default: 59)
 Interval in seconds in which `sudo` command will be spawned in the background

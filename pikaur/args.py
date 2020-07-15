@@ -83,9 +83,9 @@ PACMAN_STR_OPTS: ArgSchema = [
 
 def get_pikaur_str_opts() -> ArgSchema:
     return [
-        (None, 'mflags', None),
+        (None, 'mflags', PikaurConfig().build.MakepkgFlags.get_str()),
         (None, 'makepkg-config', None),
-        (None, 'makepkg-path', None),
+        (None, 'makepkg-path', PikaurConfig().misc.MakepkgPath.get_str()),
         (None, 'pikaur-config', None),
     ]
 

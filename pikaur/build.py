@@ -579,6 +579,8 @@ class PackageBuild(DataType):
 
     def build_with_makepkg(self) -> bool:  # pylint: disable=too-many-branches,too-many-statements
         makepkg_args = []
+        if self.args.mflags:
+            makepkg_args.extend(self.args.mflags.split(','))
         if not self.args.needed:
             makepkg_args.append('--force')
         if not color_enabled():

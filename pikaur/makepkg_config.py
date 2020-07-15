@@ -131,12 +131,9 @@ class MakePkgCommand:
     def get(cls) -> List[str]:
         if cls._cmd is None:
             args = parse_args()
-            makepkg_flags = (
-                args.mflags.split(',') if args.mflags else []
-            )
             config_args = (
                 ['--config', args.makepkg_config] if args.makepkg_config else []
             )
-            cls._cmd = [args.makepkg_path or 'makepkg', ] + makepkg_flags + config_args
+            cls._cmd = [args.makepkg_path or 'makepkg', ] + config_args
             cls._apply_dynamic_users_workaround()
         return cls._cmd
