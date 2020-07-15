@@ -9,3 +9,12 @@ coverage_env/
 dist/
 MANIFEST
 *.egg-info/
+
+# Arch Linux
+/pikaur-git
+
+# Eclipse stuff
+/.settings
+/.project
+# PyDev specific (Python IDE for Eclipse)
+/.pydevproject
