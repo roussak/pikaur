@@ -12,9 +12,10 @@ import codecs
 import shutil
 import atexit
 import io
-import socket
 from argparse import ArgumentError  # pylint: disable=no-name-in-module
 from typing import List, Optional, Callable, NoReturn
+
+import pyalpm
 
 from .i18n import _  # keep that first
 from .args import (
@@ -49,6 +50,7 @@ from .info_cli import cli_info_packages
 from .aur import find_aur_packages, get_repo_url
 from .aur_deps import get_aur_deps_list
 from .pacman import PackageDB, PackagesNotFoundInRepo, PacmanConfig
+from .urllib import init_proxy, ProxyInitSocks5Error, wrap_proxy_env
 
 
 def init_readline() -> None:
@@ -82,26 +84,6 @@ def init_output_encoding() -> None:
 
 
 init_output_encoding()
-
-
-def init_proxy() -> None:
-    proxy = PikaurConfig().network.Socks5Proxy.get_str()
-    if proxy:  # pragma: no cover
-        port = 1080
-        idx = proxy.find(':')
-        if idx >= 0:
-            port = int(proxy[idx + 1:])
-            proxy = proxy[:idx]
-
-        try:
-            import socks  # type: ignore[import] #  pylint:disable=import-outside-toplevel
-        except ImportError:
-            print_error(
-                _("pikaur requires python-pysocks to use a socks5 proxy.")
-            )
-            sys.exit(2)
-        socks.set_default_proxy(socks.PROXY_TYPE_SOCKS5, proxy, port)
-        socket.socket = socks.socksocket  # type: ignore[misc]
 
 
 def cli_print_upgradeable() -> None:
@@ -168,12 +150,12 @@ def cli_getpkgbuild() -> None:
         name = aur_pkg.name
         repo_path = os.path.join(pwd, name)
         print_stdout()
-        interactive_spawn([
+        interactive_spawn(wrap_proxy_env([
             'git',
             'clone',
             get_repo_url(aur_pkg.packagebase),
             repo_path,
-        ])
+        ]))
 
     for repo_pkg in repo_pkgs:
         print_stdout()
@@ -211,7 +193,10 @@ def cli_print_version() -> None:
     pacman_version = spawn(
         [PikaurConfig().misc.PacmanPath.get_str(), '--version', ],
     ).stdout_text.splitlines()[1].strip(' .-')
-    print_version(pacman_version, quiet=args.quiet)
+    print_version(
+        pacman_version=pacman_version, pyalpm_version=pyalpm.version(),
+        quiet=args.quiet
+    )
 
 
 def cli_dynamic_select() -> None:  # pragma: no cover
@@ -242,7 +227,7 @@ def cli_dynamic_select() -> None:  # pragma: no cover
             break
         except NotANumberInput as exc:
             if exc.character.lower() == _('n'):
-                raise SysExit(128)
+                raise SysExit(128) from exc
             print_error(_('invalid number: {}').format(exc.character))
 
     parse_args().positional = [packages[idx].name for idx in selected_pkgs_idx]
@@ -252,7 +237,11 @@ def cli_dynamic_select() -> None:  # pragma: no cover
 def cli_entry_point() -> None:  # pylint: disable=too-many-statements
     # pylint: disable=too-many-branches
 
-    init_proxy()
+    try:
+        init_proxy()
+    except ProxyInitSocks5Error as exc:
+        print_error(''.join(exc.args))
+        sys.exit(2)
 
     # operations are parsed in order what the less destructive (like info and query)
     # are being handled first, for cases when user by mistake

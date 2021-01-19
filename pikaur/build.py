@@ -20,12 +20,12 @@ from .config import (
 )
 from .aur import get_repo_url, find_aur_packages
 from .pacman import (
-    PackageDB, get_pacman_command, install_built_deps,
+    PackageDB, ProvidedDependency, get_pacman_command, install_built_deps,
 )
 from .args import PikaurArgs, parse_args
 from .pprint import (
     color_line, bold_line, color_enabled,
-    print_stdout, print_stderr, print_error,
+    print_stdout, print_stderr, print_error, print_debug,
 )
 from .prompt import (
     retry_interactive_command_or_exit, ask_to_continue,
@@ -39,6 +39,15 @@ from .srcinfo import SrcInfo
 from .updates import is_devel_pkg
 from .version import compare_versions, VersionMatcher
 from .makepkg_config import MakepkgConfig, MakePkgCommand, PKGDEST
+from .urllib import wrap_proxy_env
+from .filelock import FileLock
+
+
+BUILD_DEPS_LOCK = '/tmp/pikaur_build_deps.lock'
+
+
+def debug(msg: Any) -> None:
+    print_debug(f"{color_line('build', 5)}: {str(msg)}")
 
 
 class PkgbuildChanged(Exception):
@@ -105,6 +114,10 @@ class PackageBuild(DataType):
     args: PikaurArgs
     resolved_conflicts: Optional[List[List[str]]] = None
 
+    _local_pkgs_wo_build_deps: Set[str]
+    _local_pkgs_with_build_deps: Set[str]
+    _local_provided_pkgs_with_build_deps: Dict[str, List[ProvidedDependency]]
+
     def __init__(  # pylint: disable=super-init-not-called
             self,
             package_names: Optional[List[str]] = None,
@@ -148,23 +161,25 @@ class PackageBuild(DataType):
 
         self.reviewed = self.current_hash == self.last_installed_hash
 
+        self._local_pkgs_wo_build_deps = set()
+        self._local_pkgs_with_build_deps = set()
+        self._local_provided_pkgs_with_build_deps = {}
+
     def git_reset_changed(self) -> InteractiveSpawn:
-        return interactive_spawn(isolate_root_cmd([
+        return interactive_spawn(isolate_root_cmd(wrap_proxy_env([
             'git',
-            '-C',
-            self.repo_path,
+            '-C', self.repo_path,
             'checkout',
             '--',
             "*"
-        ]))
+        ])))
 
     def update_aur_repo(self) -> InteractiveSpawn:
         cmd_args: List[str]
         if self.pull:
             cmd_args = [
                 'git',
-                '-C',
-                self.repo_path,
+                '-C', self.repo_path,
                 'pull',
                 'origin',
                 'master'
@@ -178,7 +193,7 @@ class PackageBuild(DataType):
             ]
         if not cmd_args:
             return NotImplemented
-        result = spawn(isolate_root_cmd(cmd_args))
+        result = spawn(isolate_root_cmd(wrap_proxy_env(cmd_args)))
         self.reviewed = self.current_hash == self.last_installed_hash
         return result
 
@@ -489,12 +504,13 @@ class PackageBuild(DataType):
     def _install_repo_deps(self) -> None:
         if not self.all_deps_to_install:
             return
-        # @TODO: use lock file?
+
         print_stderr('{} {}:'.format(
             color_line('::', 13),
             _("Installing repository dependencies for {}").format(
                 bold_line(', '.join(self.package_names)))
         ))
+
         retry_interactive_command_or_exit(
             sudo(
                 self._get_pacman_command() + [
@@ -506,24 +522,44 @@ class PackageBuild(DataType):
             conflicts=self.resolved_conflicts,
         )
         PackageDB.discard_local_cache()
+        self._local_pkgs_with_build_deps = set(PackageDB.get_local_dict().keys())
+        self._local_provided_pkgs_with_build_deps = PackageDB.get_local_provided_dict()
 
-    def _remove_installed_deps(self, local_packages_before: Set[str]) -> None:
-        if not local_packages_before:
+    def install_all_deps(self, all_package_builds: Dict[str, 'PackageBuild']) -> None:
+        with FileLock(BUILD_DEPS_LOCK):
+            self.get_deps(all_package_builds)
+            if self.all_deps_to_install or self.built_deps_to_install:
+                PackageDB.discard_local_cache()
+                self._local_pkgs_wo_build_deps = set(PackageDB.get_local_dict().keys())
+            self.install_built_deps(all_package_builds)
+            self._install_repo_deps()
+
+    def _remove_installed_deps(self) -> None:
+        if not self._local_pkgs_wo_build_deps:
             return
-        PackageDB.discard_local_cache()
-        local_packages_after = set(PackageDB.get_local_dict().keys())
-        local_provided_pkgs = PackageDB.get_local_provided_dict()
 
-        deps_packages_installed = local_packages_after.difference(local_packages_before)
-        deps_packages_removed = local_packages_before.difference(local_packages_after)
+        debug("Gonna compute diff of installed pkgs")
+        deps_packages_installed = self._local_pkgs_with_build_deps.difference(
+            self._local_pkgs_wo_build_deps
+        )
+        deps_packages_removed = self._local_pkgs_wo_build_deps.difference(
+            self._local_pkgs_with_build_deps
+        )
+        debug(f"{deps_packages_installed=}")
+        debug(f"{deps_packages_removed=}")
+        if not deps_packages_installed:
+            return
 
         # check if there is diff incosistency because of the package replacement:
         if deps_packages_removed:
             for removed_pkg_name in list(deps_packages_removed):
                 for installed_pkg_name in list(deps_packages_installed):
                     if (
-                            removed_pkg_name in local_provided_pkgs
-                    ) and (installed_pkg_name in local_provided_pkgs[removed_pkg_name]):
+                            removed_pkg_name in self._local_provided_pkgs_with_build_deps
+                    ) and (
+                        installed_pkg_name
+                        in self._local_provided_pkgs_with_build_deps[removed_pkg_name]
+                    ):
                         deps_packages_installed.remove(installed_pkg_name)
                         deps_packages_removed.remove(removed_pkg_name)
                         continue
@@ -691,14 +727,7 @@ class PackageBuild(DataType):
 
         self.prepare_build_destination()
 
-        local_packages_before: Set[str] = set()
-        self.get_deps(all_package_builds)
-        if self.all_deps_to_install or self.built_deps_to_install:
-            PackageDB.discard_local_cache()
-            local_packages_before = set(PackageDB.get_local_dict().keys())
-
-        self.install_built_deps(all_package_builds)
-        self._install_repo_deps()
+        self.install_all_deps(all_package_builds)
 
         if self.check_if_already_built():
             build_succeeded = True
@@ -706,10 +735,10 @@ class PackageBuild(DataType):
             try:
                 build_succeeded = self.build_with_makepkg()
             except SysExit as exc:
-                self._remove_installed_deps(local_packages_before)
+                self._remove_installed_deps()
                 raise exc
 
-        self._remove_installed_deps(local_packages_before)
+        self._remove_installed_deps()
 
         if not build_succeeded:
             self.failed = True

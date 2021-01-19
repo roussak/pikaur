@@ -7,14 +7,17 @@ POTFILE := $(LOCALEDIR)/pikaur.pot
 POFILES := $(addprefix $(LOCALEDIR)/,$(addsuffix .po,$(LANGS)))
 POTEMPFILES := $(addprefix $(LOCALEDIR)/,$(addsuffix .po~,$(LANGS)))
 MOFILES = $(POFILES:.po=.mo)
+DISTDIR := dist
 
+PIKAMAN := python ./maintenance_scripts/pikaman.py
+README_FILE := README.md
 MAN_FILE := pikaur.1
-MAN_FILE_BAK := pikaur.1.repo
-MD_MAN_FILE := $(MAN_FILE).md
 
-all: locale
+all: locale man bin
 
 locale: $(MOFILES)
+man: $(MAN_FILE)
+bin: $(DISTDIR)/usr/bin/pikaur
 
 $(POTFILE):
 	# find pikaur -type f -name '*.py' -not -name 'argparse.py' \
@@ -30,40 +33,27 @@ $(LOCALEDIR)/%.po: $(POTFILE)
 %.mo: %.po
 	msgfmt -o $@ $<
 
-clean_man:
-	$(RM) $(MD_MAN_FILE)
-
-clean: clean_man clean_checkman
-	$(RM) $(LANGS_MO)
-	$(RM) $(POTEMPFILES)
-
-man: clean_man
-	cp README.md $(MD_MAN_FILE)
-	sed -i \
-		-e 's/^##### /### /g' \
-		-e 's/^#### /### /g' \
-		$(MD_MAN_FILE)
-	ronn $(MD_MAN_FILE) --manual="Pikaur manual" -r
+$(MAN_FILE): $(README_FILE)
+	$(PIKAMAN) $< $@
 	sed -i \
 		-e '/travis/d' \
 		-e '/Screenshot/d' \
-		-e 's/\(^\.SS.*\)\\"\(.*\)\\"/\1'"'"'\2'"'"'/g' \
-		$(MAN_FILE)
+		$@
 
-backup_man:
-	mv $(MAN_FILE) $(MAN_FILE_BAK)
+$(DISTDIR)/usr/bin:
+	mkdir -p $@
 
-_check_man: backup_man man
-	tail -n +5 $(MAN_FILE) > $(MAN_FILE).compare
-	tail -n +5 $(MAN_FILE_BAK) > $(MAN_FILE_BAK).compare
-	mv $(MAN_FILE_BAK) $(MAN_FILE)
-	diff $(MAN_FILE).compare $(MAN_FILE_BAK).compare
+$(DISTDIR)/usr/bin/pikaur: $(DISTDIR)/usr/bin
+	sed \
+		-e "s/%PYTHON_BUILD_VERSION%/$$(python -c 'import sys ; print(f"{sys.version_info.major}.{sys.version_info.minor}")')/g" \
+		packaging/usr/bin/pikaur > $@
+	chmod +x $@
 
-clean_checkman:
-	$(RM) $(MAN_FILE_BAK).compare
-	$(RM) $(MAN_FILE).compare
+clean:
+	$(RM) $(LANGS_MO)
+	$(RM) $(POTEMPFILES)
+	$(RM) $(MAN_FILE)
+	$(RM) -r $(DISTDIR)
 
-check_man: _check_man clean_checkman
-
-.PHONY: all clean $(POTFILE) clean_man man backup_man check_man clean_checkman
+.PHONY: all clean $(POTFILE) man bin $(DISTDIR)/usr/bin/pikaur
 .PRECIOUS: $(LOCALEDIR)/%.po

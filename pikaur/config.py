@@ -12,7 +12,7 @@ from .i18n import _
 RUNNING_AS_ROOT = os.geteuid() == 0
 
 
-VERSION = '1.6.10-dev'
+VERSION = '1.6.15-dev'
 
 _USER_CACHE_HOME = os.environ.get(
     "XDG_CACHE_HOME",
@@ -192,6 +192,18 @@ CONFIG_SCHEMA: Dict[str, Any] = {
             'type': 'bool',
             'default': 'no'
         },
+        'AurSearchSorting': {
+            'type': 'str',
+            'default': 'hottest'
+        },
+        'DisplayLastUpdated': {
+            'type': 'bool',
+            'default': 'no'
+        },
+        'GroupByRepository': {
+            'type': 'bool',
+            'default': 'yes'
+        },
         'ReverseSearchSorting': {
             'type': 'bool',
             'default': 'no'
@@ -240,6 +252,14 @@ CONFIG_SCHEMA: Dict[str, Any] = {
             'default': 'https://www.archlinux.org/feeds/news/',
         },
         'Socks5Proxy': {
+            'type': 'str',
+            'default': '',
+        },
+        'AurHttpProxy': {
+            'type': 'str',
+            'default': '',
+        },
+        'AurHttpsProxy': {
             'type': 'str',
             'default': '',
         },

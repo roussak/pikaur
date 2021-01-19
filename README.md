@@ -165,6 +165,15 @@ Require enter key to be pressed when answering questions.
 ##### PrintCommands (default: no)
 Print each command which pikaur is currently spawning.
 
+##### GroupByRepo (default: yes)
+Groups official packages by repository when using commands like `pikaur -Ss <query>` or `pikaur <query>`.
+
+##### AurSearchSorting (default: hottest)
+Sorting key for AUR packages when using commands like `pikaur -Ss <query>` or `pikaur <query>`. Accepts `hottest`, `numvotes`, `lastmodified`, `popularity`, `pkgname`. Only `pkgname` is sorted ascendingly. The metric for `hottest` is weighted by both `numvotes` and `popularity`.
+
+##### DisplayLastUpdated (default: no)
+Display the date a package is last updated on search results when using commands like `pikaur -Ss <query>` or `pikaur <query>`.
+
 ##### ReverseSearchSorting (default: no)
 Reverse search results of the commands like `pikaur -Ss <query>` or `pikaur <query>`.
 
@@ -205,10 +214,22 @@ The format is `[host[:port]]`, and the default port is 1080.
 PySocks module (`python-pysocks` package) should be installed in order to use this option.
 
 Note that any downloads by `pacman`, `git` or `makepkg` will NOT use this proxy.
-If that's needed, setting proxy options in their own config files will take effect (such as `~/.gitconfig`, `~/.curlrc`).
+If that's needed, setting proxy options in their own config files will take effect
+(such as `~/.gitconfig`, `~/.curlrc`).
 
+##### AurHttpProxy (default: )
+Specify a HTTP proxy which is used to get AUR package information and to `git`-clone from AUR.
 
+Note that any downloads by `pacman`, `git` (inside the build) or `makepkg` will NOT use this proxy.
+If that's needed, setting proxy options in their own config files will take effect
+(such as `env HTTP_PROXY=`, `~/.gitconfig`, `~/.curlrc`).
 
+##### AurHttpsProxy (default: )
+Specify a HTTPS proxy which is used to get AUR package information and to `git`-clone from AUR.
+
+Note that any downloads by `pacman`, `git` (inside the build) or `makepkg` will NOT use this proxy.
+If that's needed, setting proxy options in their own config files will take effect
+(such as `env HTTPS_PROXY=`, `~/.gitconfig`, `~/.curlrc`).
 
 
 
@@ -236,6 +257,13 @@ If that's needed, setting proxy options in their own config files will take effe
 (`--needed` option will make sure what the same package version won't be rebuilt again and `-a/--aur` will ensure what only AUR packages will be upgraded)
 
 
+##### How to manually remove unneeded dependencies?
+
+Pikaur is not needed for that, use just Pacman itself:
+
+`sudo pacman -Rs $(pacman -Qtdq)` (however `pikaur -Rs ...` would work as well if you lazy to type `sudo` :) )
+
+
 ##### How to override default source directory, build directory or built package destination?
 
 Set `SRCDEST`, `BUILDDIR` or `PKGDEST` accordingly in `makepkg.conf`.
@@ -245,13 +273,24 @@ For more info see `makepkg` documentation.
 
 ##### How to clean old or uninstalled AUR packages in ~/.cache/pikaur/pkg?
 
-This can be achieved using a pacman-hook (paccache-clear.hook). For both official and AUR packages, the last 3 packages are kept if the package is still installed, and one package is kept if the package is uninstalled.
+Use `paccache(8)` with the `--cachedir` option.
 
-```
-Exec = /usr/bin/env bash -c "/usr/bin/paccache -vrk3; /usr/bin/paccache -vruk1; /usr/bin/paccache --cachedir PATH/TO/.cache/pikaur/pkg/ -vrk3; /usr/bin/paccache --cachedir PATH/TO/.cache/pikaur/pkg/ -vruk1"
-```
+To clean them up automatically, you may:
 
-Change the numbers, and you are good to go.
+- use a pacman hook.  Start with the provided
+  `/usr/share/pikaur/examples/pikaur-cache.hook`, remember to update the
+  cache's path.
+
+- use a systemd service & timer (provided `pikaur-cache.service` and
+  `pikaur-cache.timer`).  Configure it with `systemctl --user edit
+  --full pikaur-cache.service` and activate it with `systemctl --user
+  enable --now pikaur-cache.timer`.
+
+
+##### How to restore original PKGBUILD after editing?
+
+Go to the package's directory, `cd ~/.local/share/pikaur/aur_repos/${PACKAGE_NAME}`.
+Review the current PKGBUILD file changes with `git diff` and then reset with  `git checkout -- '*'`.
 
 
 ##### How to see upgrade list without syncing the database? (like "checkupdates" tool from pacman)
@@ -283,9 +322,6 @@ To start working on a new language, say 'uk' (Ukrainian), add it to the
 your favorite PO editor. Run `make` every time the Python code strings change
 or the `.po` is modified.
 
-### Documentation
-
-After updating readme, please install `ruby-ronn` and run `make man`.
 
 
 ## Authors

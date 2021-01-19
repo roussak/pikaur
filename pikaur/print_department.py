@@ -31,21 +31,21 @@ REPLACEMENTS_COLOR = 14
 AnyPackage = Union[AURPackageInfo, pyalpm.Package]
 
 
-def print_version(pacman_version: str, quiet=False) -> None:
+def print_version(pacman_version: str, pyalpm_version: str, quiet=False) -> None:
     if quiet:
         print(f'Pikaur v{VERSION}')
-        print(pacman_version)
+        print(f'{pacman_version} - pyalpm v{pyalpm_version}')
     else:
         sys.stdout.write(r"""
       /:}               _
      /--1             / :}
     /   |           / `-/
-   |  ,  --------  /   /
-   |'                 Y      Pikaur v""" + VERSION + r"""
-  /                   l      (C) 2018-2020 Pikaur development team
-  l  /       \        l      Licensed under GPLv3
-  j  ●   .   ●        l
- { )  ._,.__,   , -.  {      """ + pacman_version + r"""
+   |  ,  --------  /   /     Pikaur v""" + VERSION + r"""
+   |'                 Y      (C) 2018-2020 Pikaur development team
+  /                   l      Licensed under GPLv3
+  l  /       \        l
+  j  ●   .   ●        l      """ + pacman_version + r"""
+ { )  ._,.__,   , -.  {      pyalpm v""" + pyalpm_version + r"""
   У    \  _/     ._/   \
 
 """)
@@ -508,7 +508,7 @@ def print_ignoring_outofdate_upgrade(package_info: InstallInfo) -> None:
 
 
 # @TODO: weird pylint behavior if remove `return` from the end:
-def print_package_search_results(  # pylint:disable=useless-return,too-many-locals
+def print_package_search_results(  # pylint:disable=useless-return,too-many-locals,too-many-statements,too-many-branches
         repo_packages: Iterable[pyalpm.Package],
         aur_packages: Iterable[AURPackageInfo],
         local_pkgs_versions: Dict[str, str],
@@ -516,22 +516,37 @@ def print_package_search_results(  # pylint:disable=useless-return,too-many-loca
 ) -> List[AnyPackage]:
 
     repos = [db.name for db in PackageDB.get_alpm_handle().get_syncdbs()]
+    user_config = PikaurConfig()
+    group_by_repo = user_config.ui.GroupByRepository.get_bool()
 
     def get_repo_sort_key(pkg: pyalpm.Package) -> Tuple[int, str]:
         return (
             repos.index(pkg.db.name)
-            if pkg.db.name in repos
+            if group_by_repo and pkg.db.name in repos
             else 999,
             pkg.name
         )
 
-    def get_aur_sort_key(pkg: AURPackageInfo) -> Tuple[float, str]:
-        if (
-                isinstance(pkg.numvotes, int) and
-                isinstance(pkg.popularity, float)
-        ):
-            return (-(pkg.numvotes + 1) * (pkg.popularity + 1), pkg.name)
-        return (-1.0, pkg.name)
+    AurSortKey = Union[Tuple[float, float], float]
+
+    def get_aur_sort_key(pkg: AURPackageInfo) -> Tuple[AurSortKey, str]:
+        user_aur_sort = user_config.ui.AurSearchSorting
+        pkg_numvotes = pkg.numvotes if isinstance(pkg.numvotes, int) else 0
+        pkg_popularity = pkg.popularity if isinstance(pkg.popularity, float) else 0.0
+
+        if user_aur_sort == 'pkgname':
+            return (-1.0, pkg.name)
+        if user_aur_sort == 'popularity':
+            return ((-pkg_popularity, -pkg_numvotes), pkg.name)
+        if user_aur_sort == 'numvotes':
+            return ((-pkg_numvotes, -pkg_popularity), pkg.name)
+        if user_aur_sort == 'lastmodified':
+            return (
+                -pkg.lastmodified
+                if isinstance(pkg.lastmodified, int)
+                else 0,
+                pkg.name)
+        return (-(pkg_numvotes + 1) * (pkg_popularity + 1), pkg.name)
 
     args = parse_args()
     local_pkgs_names = local_pkgs_versions.keys()
@@ -548,7 +563,7 @@ def print_package_search_results(  # pylint:disable=useless-return,too-many-loca
     # mypy is always funny ^^ https://github.com/python/mypy/issues/5492#issuecomment-545992992
 
     enumerated_packages = list(enumerate(sorted_packages))
-    if PikaurConfig().ui.ReverseSearchSorting.get_bool():
+    if user_config.ui.ReverseSearchSorting.get_bool():
         enumerated_packages = list(reversed(enumerated_packages))
 
     for pkg_idx, package in enumerated_packages:
@@ -592,7 +607,7 @@ def print_package_search_results(  # pylint:disable=useless-return,too-many-loca
                     package.popularity
                 ), 3)
 
-            color_config = PikaurConfig().colors
+            color_config = user_config.colors
             version_color = color_config.Version.get_int()
             version = package.version
 
@@ -604,14 +619,30 @@ def print_package_search_results(  # pylint:disable=useless-return,too-many-loca
                     datetime.fromtimestamp(package.outofdate).strftime('%Y/%m/%d')
                 )
 
-            print("{}{}{} {} {}{}{}".format(
+            last_updated = ""
+            if user_config.ui.DisplayLastUpdated.get_bool():
+                last_update_date = None
+
+                if isinstance(package, pyalpm.Package):
+                    last_update_date = package.builddate
+                if isinstance(package, AURPackageInfo):
+                    last_update_date = package.lastmodified
+
+                last_updated = color_line(' (last updated: {})'.format(
+                    datetime.fromtimestamp(last_update_date).strftime('%Y/%m/%d')
+                    if last_update_date is not None
+                    else 'unknown'
+                ), 8)
+
+            print("{}{}{} {} {}{}{}{}".format(
                 idx,
                 repo,
                 bold_line(pkg_name),
                 color_line(version, version_color),
                 groups,
                 installed,
-                rating
+                rating,
+                last_updated
             ))
             print(format_paragraph(f'{package.desc}'))
     return sorted_packages
